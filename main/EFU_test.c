@@ -1,7 +1,6 @@
 
 #include <math.h>
 #include <stdio.h>
-
 #include "esp_chip_info.h"
 #include "esp_err.h"
 #include "esp_flash.h"
@@ -10,9 +9,7 @@
 #include "freertos/task.h"
 #include "sdkconfig.h"
 #include <inttypes.h>
-
 #include "driver/gpio.h"
-
 #include "driver/mcpwm_cmpr.h"
 #include "driver/mcpwm_gen.h"
 #include "driver/mcpwm_oper.h"
@@ -40,21 +37,27 @@ float PWM_duty_cycle_percent_B = 100; // PWM B Boost - reverse to voltage: min v
 float adc_raw_to_mv_calibrated(int adc_raw);
 
 // Average
+int number = 40; //How many values to average
+
 int SC_V_numb = 0;
-float SC_V_av[21];
+float SC_V_av[41]; //How many values to average
 float SC_V = 0;
 
 int SC_C_numb = 0;
-float SC_C_av[21];
+float SC_C_av[41]; //How many values to average
 float SC_C = 0;
 
 int FC_C_numb = 0;
-float FC_C_av[21];
+float FC_C_av[41]; //How many values to average
 float FC_C = 0;
 
 int FC_V_numb = 0;
-float FC_V_av[21];
+float FC_V_av[41]; //How many values to average
 float FC_V = 0;
+
+int MC_C_numb = 0;
+float MC_C_av[41]; //How many values to average
+float MC_C = 0;
 
 uint16_t adc_raw[2][10];
 float adc_cal[2][10];
@@ -65,6 +68,26 @@ float adc_cal[2][10];
 
 void converter();
 void boost_converter();
+
+  float SC_C_calc = 0;
+  bool start_conv = 0;
+  bool SC_full = 0;
+  float SC_V_SET = 45; // To read from CAN comunication 3000mV ADC = 55V FC/SC
+  float FC_C_MAX = 2; 
+
+  float SC_V_MAX = 45; // To read from CAN comunication 3000mV = 55V 46V->2509
+  float FC_C_SET = 1; 
+
+//Calculation initial resistance
+float R_system = 0.1;  //Hy cap 500F 3V 3mR Hydros 48V pack -> 16x3=48 mR 
+//+cable resistanc 1m 2.5mm2 cable = 7mR https://ohmslaw.eu/wire_resistance/-mm_2.5-mm2-_1-m_mohm_copper
+//+mosfet 2x6 = 12mR
+//+coil 1mH 21turns E32 1m of 1.5mm wire => 9,8mR
+//+conectors resistanc XT60 = 0,55mR 
+//+trace 200mm 5mm 20mR and 2x current 0.7mR sensor resitance 
+//+ Fuell cell resistance and cables?
+
+
 
 // number of ticks in each period
 // 100 ticks, 40 us;
@@ -241,10 +264,12 @@ void send_esp_logi()
          "%2.3f,"
          "%2.3f,"
          "%2.3f,"
+         "%2.3f,"
+         "%2.3f,"
          "%3.2f,"
          "%3.2f\n\r",
          adc_cal[1][2], adc_cal[1][4], adc_cal[1][8], adc_cal[2][6],
-         adc_cal[2][7], adc_cal[2][0], adc_cal[2][2], SC_V, FC_C, FC_V, SC_C, PWM_duty_cycle_percent_A, PWM_duty_cycle_percent_B);
+         adc_cal[2][7], adc_cal[2][0], adc_cal[2][2], SC_V, FC_C, FC_V, SC_C, MC_C, SC_C_calc, PWM_duty_cycle_percent_A, PWM_duty_cycle_percent_B);
 }
 
 // Sending logs
@@ -302,9 +327,10 @@ float map(float x, float in_min, float in_max, float out_min, float out_max) {
 void app_main(void)
 {
   // FreeRTOS task working separetly - 4096 is the memory slot
-  xTaskCreate(log_task, "Log Task", 4096, NULL, 1, NULL);
+  //xTaskCreate(log_task, "Log Task", 4096, NULL, 1, NULL);
 
   // esp_task_wdt_delete(NULL); // Turn Off watchdog (min 10ms vTaskDelay in main)
+
 
   enable_configuration();
   pwm_configuration();
@@ -381,7 +407,7 @@ void app_main(void)
     
     
     // Średnia ruchoma - przerobić na funkcje
-    if (SC_V_numb <= 20)
+    if (SC_V_numb <= number)
     {
       SC_V_av[SC_V_numb] = adc_cal[1][2];
       SC_V_numb++;
@@ -390,15 +416,15 @@ void app_main(void)
     {
       SC_V_numb = 0;
     }
-    for (int i = 0; i < 20; i++)
+    for (int i = 0; i < number; i++)
     {
       SC_V = SC_V + SC_V_av[i];
     }
-    SC_V = SC_V / 20;
+    SC_V = SC_V / number;
 
 
 
-    if (FC_C_numb <= 20)
+    if (FC_C_numb <= number)
     {
       FC_C_av[FC_C_numb] = adc_cal[1][8];
       FC_C_numb++;
@@ -407,16 +433,16 @@ void app_main(void)
     {
       FC_C_numb = 0;
     }
-    for (int j = 0; j < 20; j++)
+    for (int j = 0; j < number; j++)
     {
       FC_C = FC_C + FC_C_av[j];
     }
-    FC_C = FC_C / 20; 
+    FC_C = FC_C / number; 
 
 
 
 
-        if (SC_C_numb <= 20)
+        if (SC_C_numb <= number)
     {
       SC_C_av[SC_V_numb] = adc_cal[2][6];
       SC_C_numb++;
@@ -425,15 +451,15 @@ void app_main(void)
     {
       SC_C_numb = 0;
     }
-    for (int j = 0; j < 20; j++)
+    for (int j = 0; j < number; j++)
     {
       SC_C = SC_C + SC_C_av[j];
     }
-    SC_C = SC_C / 20; 
+    SC_C = SC_C / number; 
 
 
 
-        if (FC_V_numb <= 20)
+        if (FC_V_numb <= number)
     {
       FC_V_av[FC_V_numb] = adc_cal[1][4];
       FC_V_numb++;
@@ -442,15 +468,49 @@ void app_main(void)
     {
       FC_V_numb = 0;
     }
-    for (int j = 0; j < 20; j++)
+    for (int j = 0; j < number; j++)
     {
       FC_V = FC_V + FC_V_av[j];
     }
-    FC_V = FC_V / 20; 
+    FC_V = FC_V / number; 
 
 
 
 
+            if (MC_C_numb <= number)
+    {
+      MC_C_av[MC_C_numb] = adc_cal[2][7];
+      MC_C_numb++;
+    }
+    else
+    {
+      MC_C_numb = 0;
+    }
+    for (int j = 0; j < number; j++)
+    {
+      MC_C = MC_C + MC_C_av[j];
+    }
+    MC_C = MC_C / number; 
+
+
+
+printf("%2.3f," 
+         "%2.3f,"
+         "%2.3f,"
+         "%2.3f,"
+         "%2.3f,"
+         "%2.3f,"
+         "%2.3f,"
+         "%2.3f,"
+         "%2.3f,"
+         "%2.3f,"
+         "%2.3f,"
+         "%2.3f,"
+         "%2.3f,"
+         "%3.2f,"
+         "%3.2f\n\r",
+         adc_cal[1][2], adc_cal[1][4], adc_cal[1][8], adc_cal[2][6],
+         adc_cal[2][7], adc_cal[2][0], adc_cal[2][2], SC_V, FC_C, FC_V, SC_C, MC_C, SC_C_calc, PWM_duty_cycle_percent_A, PWM_duty_cycle_percent_B);
 
 
 
@@ -464,24 +524,7 @@ void app_main(void)
     
     //boost_converter();
 
-    // Safety
-    if (PWM_duty_cycle_percent_A <= 35)
-      PWM_duty_cycle_percent_A = 35; // Buck D min = 35% (min 20V SC_V)
-    if (PWM_duty_cycle_percent_B >= 62)
-      PWM_duty_cycle_percent_B = 62; // Bost D max = 62% (max 60V)  50V -> 45%
 
-
-  // Voltage converter drivers enable change
-  gpio_set_level(ENABLE_PIN_A, enable_state_A);
-  gpio_set_level(ENABLE_PIN_B, enable_state_B);
-
-  // Voltage converter PWM A (Buck/Current regulator) duty cycle change
-  mcpwm_comparator_set_compare_value(
-      comparator_handle_1, mcpwm_duty_cycle_calculate(PWM_duty_cycle_percent_A));
-
-  // Voltage converter PWM B (Boost) duty cycle change
-  mcpwm_comparator_set_compare_value(
-      comparator_handle_2, mcpwm_duty_cycle_calculate(PWM_duty_cycle_percent_B));
 
 
     vTaskDelay(10 / portTICK_PERIOD_MS);
@@ -490,10 +533,7 @@ void app_main(void)
 
 void boost_converter()
 {
-  float SC_V_SET = 45; // To read from CAN comunication 3000mV ADC = 55V FC/SC
-  float FC_C_MAX = 2; 
-
-  if (FC_C <= FC_C_MAX)
+    if (FC_C <= FC_C_MAX)
   {
     enable_state_A = 1;
     enable_state_B = 1;
@@ -520,44 +560,151 @@ void boost_converter()
   }
 }
 
+
+
+
+
 // DOCELOWE MUSI OPIERAĆ SIĘ O STABILIZACJĘ PRĄDU POBIERANEGO Z OGNIWA I NAPIĘCIE MAKSYMALNE SC //poprawiono ortografie
 
 // First converter control function - simple step up
 void converter()
 {
-  int SC_V_MAX = 48; // To read from CAN comunication 3000mV = 55V 46V->2509
-  int FC_C_SET = 1; // 3000mV = 10A lub -10A      3000/20=150   -10A->150   -1A->1500-150=1350  1A->1650
-                       // TEST HALL Direction!!!
+  
 
-  if (SC_V <= SC_V_MAX && SC_V > 20)
+if(start_conv == 0) vTaskDelay(10 / portTICK_PERIOD_MS);//Time for adc mesurment
+
+
+
+//New converter PWM method
+
+if (SC_V < FC_V){
+   SC_C_calc = (FC_V * PWM_duty_cycle_percent_A - SC_V)/R_system;
+  float PWM_calc = (SC_V + FC_C_SET * R_system) / FC_V;
+  if (PWM_calc > 1.00) PWM_calc = 1.00;
+  if (PWM_calc < 0.00) PWM_calc = 0.00;
+
+/*   enable_state_A = 1;
+  enable_state_B = 1;
+  PWM_duty_cycle_percent_A = PWM_calc;
+  PWM_duty_cycle_percent_B = 1.00;
+
+  start_conv = 1; */
+
+} else {
+   SC_C_calc = (FC_V * PWM_duty_cycle_percent_B - SC_V)/R_system;
+  float PWM_calc = (SC_V + FC_C_SET * R_system) / FC_V;
+
+  if (PWM_calc > 1.00) PWM_calc = 1.00;
+  if (PWM_calc < 0.00) PWM_calc = 0.00;
+
+ /*  enable_state_A = 1;
+  enable_state_B = 1;
+  PWM_duty_cycle_percent_B = PWM_calc;
+  PWM_duty_cycle_percent_A = 1.00;
+
+  start_conv = 1; */
+
+}
+
+
+if (SC_V >= SC_V_MAX){
+  enable_state_A = 0;
+  enable_state_B = 0;
+  // full charged SC flag
+    SC_full = 1;
+    start_conv = 0;
+}
+
+
+//END new converter PWM 
+
+
+
+if (SC_C_calc > 230 || SC_C > 15){ //wartość w którą stronę płynie prąd -15A czy +15A?
+  enable_state_A = 1;
+  enable_state_B = 1;
+  PWM_duty_cycle_percent_A = 0.001;
+  PWM_duty_cycle_percent_B = 1;
+  start_conv = 0;
+  
+
+}else start_conv = 1;
+
+
+  if (start_conv == 1 && SC_V <= 30)
   {
     enable_state_A = 1;
     enable_state_B = 1;
 
     if (FC_C < FC_C_SET)
     {
-      PWM_duty_cycle_percent_B--; // soft start
+      PWM_duty_cycle_percent_A += 0.005; // soft start buck converter
     }
 
     if (FC_C > FC_C_SET && FC_C < FC_C_SET * 2) // Percent of max current - read fron CAB communication
     {
-      PWM_duty_cycle_percent_B = PWM_duty_cycle_percent_B + 5; // Simple value or proportional to current
+      PWM_duty_cycle_percent_A -= 0.02; // Simple value or proportional to current
     }
 
     if (FC_C >= FC_C_SET * 2)
     {
       enable_state_A = 0; // Maby use PWM A to buck conversion and current contol
-      PWM_duty_cycle_percent_B = 1;
     }
 
     // TODO  -- Add limiters for sefty  NPT Resistor for 0V SC start?
-  }
-  else
-  {
-    enable_state_A = 0;
-    enable_state_B = 0;
+  } 
 
-    // full charged SC flag
-    bool SC_FULL = 1;
-  }
+    if (PWM_duty_cycle_percent_A > 0.99) {
+      PWM_duty_cycle_percent_B = 0;
+      PWM_duty_cycle_percent_A = 1.00;
+      start_conv = 0;
+    }
+
+    if (FC_C < FC_C_SET)
+    {
+      PWM_duty_cycle_percent_B += 0.05; // soft start boost converter
+    }
+
+    if (FC_C > FC_C_SET && FC_C < FC_C_SET * 1.5) // Percent of max current - read fron CAB communication
+    {
+      PWM_duty_cycle_percent_B -= 0.02; // Simple value or proportional to current
+    }
+
+    if (FC_C >= FC_C_SET * 2)
+    {
+      enable_state_A = 0; // Maby use PWM A to buck conversion and  current contol
+    }
+
+    
+  
+
+
+
+
+if (SC_V >= SC_V_MAX){
+  enable_state_A = 0;
+  enable_state_B = 0;
+  // full charged SC flag
+    SC_full = 1;
+}
+
+
+
+
+    // Safety
+   // if (PWM_duty_cycle_percent_A <= 35) PWM_duty_cycle_percent_A = 35; // Buck D min = 35% (min 20V SC_V) //comment if Q1 mosfet taked out
+   // if (PWM_duty_cycle_percent_B >= 62) PWM_duty_cycle_percent_B = 62; // Bost D max = 62% (if FC_V * PWM B >= 60V)  50V -> 45%
+
+
+  // Voltage converter drivers enable change
+  gpio_set_level(ENABLE_PIN_A, enable_state_A);
+  gpio_set_level(ENABLE_PIN_B, enable_state_B);
+
+  // Voltage converter PWM A (Buck/Current regulator) duty cycle change
+  mcpwm_comparator_set_compare_value(
+      comparator_handle_1, mcpwm_duty_cycle_calculate(PWM_duty_cycle_percent_A));
+
+  // Voltage converter PWM B (Boost) duty cycle change
+  mcpwm_comparator_set_compare_value(
+      comparator_handle_2, mcpwm_duty_cycle_calculate(PWM_duty_cycle_percent_B));
 }
