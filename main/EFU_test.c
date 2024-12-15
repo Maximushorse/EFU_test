@@ -31,8 +31,8 @@ int enable_state_B = 0; // ================= ustawienie enable (1 on, 0 off)
 #define PWM_PIN_B 36 // PWM B Boost
 
 // Drivers PWM start filling (%)
-float PWM_duty_cycle_percent_A = 100;  // PWM A Buck/current control
-float PWM_duty_cycle_percent_B = 100; // PWM B Boost - reverse to voltage: min voltage = 100, max voltage = 40
+float PWM_duty_cycle_percent_A = 1;  // PWM A Buck/current control
+float PWM_duty_cycle_percent_B = 1; // PWM B Boost - reverse to voltage: min voltage = 100, max voltage = 40
 
 float adc_raw_to_mv_calibrated(int adc_raw);
 
@@ -385,12 +385,12 @@ void app_main(void)
 
 
 
-    adc_cal[2][6] = map(adc_cal[2][6], 1.5, 1.450, 0, 1); //SC_C +-30A to 0,5-3V 0=1,5V
+    //adc_cal[2][6] = map(adc_cal[2][6], 1.5, 1.450, 0, 1); //SC_C +-30A to 0,5-3V 0=1,5V
 
      if(adc_cal[2][6]<=1.502){
-        adc_cal[2][6] = map(adc_cal[2][6], 0.5, 1.502, -30, 0); //MC_C +-30A to 0,5-3V 0=1,5V
+        adc_cal[2][6] = map(adc_cal[2][6], 0.5, 1.50, -30, 0); //SC_C +-30A to 0,5-3V 0=1,5V
     } else {
-      adc_cal[2][6] = map(adc_cal[2][6], 1.502, 3, 0, 30); //MC_C +-30A to 0,5-3V 0=1,5V
+      adc_cal[2][6] = map(adc_cal[2][6], 1.502, 3, 0, 30); //SC_C +-30A to 0,5-3V 0=1,5V
     }
 
 
@@ -520,7 +520,7 @@ printf("%2.3f,"
     PWM_duty_cycle_percent_B = 0;
     PWM_duty_cycle_percent_A = 0; */
 
-    //converter();
+    converter();
     
     //boost_converter();
 
@@ -531,40 +531,11 @@ printf("%2.3f,"
   }
 }
 
-void boost_converter()
-{
-    if (FC_C <= FC_C_MAX)
-  {
-    enable_state_A = 1;
-    enable_state_B = 1;
-    PWM_duty_cycle_percent_A = 100;
-
-    if (SC_V < SC_V_SET)
-    {
-      PWM_duty_cycle_percent_B += 1;
-    }
-    else
-    {
-      PWM_duty_cycle_percent_B -= 5;
-    }
-  }
-  else
-  {
-    if (FC_C > FC_C_MAX * 2)
-    {
-      enable_state_A = 1;
-      enable_state_B = 1;
-    }
-    PWM_duty_cycle_percent_A = 100;
-    PWM_duty_cycle_percent_B -= 10;
-  }
-}
 
 
 
 
-
-// DOCELOWE MUSI OPIERAĆ SIĘ O STABILIZACJĘ PRĄDU POBIERANEGO Z OGNIWA I NAPIĘCIE MAKSYMALNE SC //poprawiono ortografie
+// DOCELOWE MUSI OPIERAĆ SIĘ O STABILIZACJĘ PRĄDU POBIERANEGO Z OGNIWA I NAPIĘCIE MAKSYMALNE SC 
 
 // First converter control function - simple step up
 void converter()
@@ -573,12 +544,10 @@ void converter()
 
 if(start_conv == 0) vTaskDelay(10 / portTICK_PERIOD_MS);//Time for adc mesurment
 
-
-
 //New converter PWM method
 
 if (SC_V < FC_V){
-   SC_C_calc = (FC_V * PWM_duty_cycle_percent_A - SC_V)/R_system;
+   SC_C_calc = (FC_V * PWM_duty_cycle_percent_A/100 - SC_V)/R_system;
   float PWM_calc = (SC_V + FC_C_SET * R_system) / FC_V;
   if (PWM_calc > 1.00) PWM_calc = 1.00;
   if (PWM_calc < 0.00) PWM_calc = 0.00;
@@ -591,7 +560,7 @@ if (SC_V < FC_V){
   start_conv = 1; */
 
 } else {
-   SC_C_calc = (FC_V * PWM_duty_cycle_percent_B - SC_V)/R_system;
+   SC_C_calc = (FC_V * PWM_duty_cycle_percent_B/100 - SC_V)/R_system;
   float PWM_calc = (SC_V + FC_C_SET * R_system) / FC_V;
 
   if (PWM_calc > 1.00) PWM_calc = 1.00;
@@ -616,9 +585,14 @@ if (SC_V >= SC_V_MAX){
 }
 
 
+  enable_state_A = 1;
+  enable_state_B = 1;
+  PWM_duty_cycle_percent_A = 50;
+  PWM_duty_cycle_percent_B = 100;
+
 //END new converter PWM 
 
-
+/*
 
 if (SC_C_calc > 230 || SC_C > 15){ //wartość w którą stronę płynie prąd -15A czy +15A?
   enable_state_A = 1;
@@ -677,16 +651,16 @@ if (SC_C_calc > 230 || SC_C > 15){ //wartość w którą stronę płynie prąd -
 
     
   
+  */
 
 
-
-
+/* 
 if (SC_V >= SC_V_MAX){
   enable_state_A = 0;
   enable_state_B = 0;
   // full charged SC flag
     SC_full = 1;
-}
+} */
 
 
 
